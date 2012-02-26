@@ -1,0 +1,4 @@
+#/bin/sh
+
+export CC3_VCAM_PATH=vcam/
+./iscpipeline_virtual-cam.exe

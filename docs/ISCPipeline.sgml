@@ -1,0 +1,269 @@
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook V3.1//EN">
+
+<book id="ISCPipelineHandbook">
+	<bookinfo>
+		<title>ISC Pipeline Handbook</title>
+		<authorgroup>
+			<author>
+				<firstname>Gregory</firstname>
+				<othername>P.</othername>
+				<surname>Czerniak</surname>
+				<affiliation>
+					<orgname>University of Michigan - Dearborn Intelligent Systems Club (ISC)</orgname>
+					<address>
+                    	<email>gczernia@umd.umich.edu</email>
+                    </address>
+                </affiliation>
+			</author>
+		</authorgroup>
+	</bookinfo>
+  	<chapter id="install">
+    	<title>Installation and Setup</title>
+    	<section id="groundzero">
+      		<title>Ground-Zero Installation</title>
+			<para>This section of the Handbook was written specifically for those who:</para>
+			<itemizedlist>
+				<listitem>
+					<para>Have never developed for a CMUcam3 before, or</para>
+				</listitem>
+				<listitem>
+					<para>Do not currently have a development environment set up for the CMUcam3</para>
+				</listitem>
+			</itemizedlist>
+			<para>If you have an adequate development environment for the CMUcam3, you can skip to the next section.  If not, this section will explain from the ground up how to set up the CMUcam3's development environment.</para>
+			<orderedlist>
+				<listitem>
+					<para>Go to http://cmucam.org/wiki/Downloads and download the CMUCam3 Install Software package (it should be over 100 megabytes).</para>
+				</listitem>
+				<listitem>
+					<para>For Windows, install the Cygwin, ARM compiler, and Philips flash tool as per the instructions in the README, and if you want it, install the CMUcam3 Frame Grabber.  For Linux, untar the ARM compiler and set your PATH to the bin/ directory within the subdirectory created.  Configuring the Philips flash tool in Linux is beyond the scope of this document.  For better overall installation directions, go to http://cmucam.org/wiki/Quick-Start-Guide .</para>
+				</listitem>
+				<listitem>
+					<para>Once you have installed the utilities needed, you will want to disregard the copy of the CC3 API that comes in this package.  Instead, we are going to download the newest source tree straight from the developers' Subversion server.  Download TortoiseSVN from http://tortoisesvn.net/downloads .</para>
+				</listitem>
+				<listitem>
+					<para>Once that is installed, enter your cygwin home directory and create a new folder titled cc3.  Right click on the folder and select SVN Checkout.</para>
+				</listitem>
+				<listitem>
+					<para>Enter https://cc3.svn.sourceforge.net/svnroot/cc3/trunk as the repository URL, and click OK.  The cc3 API should download.</para>
+				</listitem>
+				<listitem>
+					<para>Enter a Cygwin shell, navigate to the cc3 directory you created, and type make.  If everything goes smoothly, the cc3 packages will compile.  You will now have a working CMUcam3 development environment.</para>
+				</listitem>
+			</orderedlist>
+    	</section>
+		<section id="fromcc3">
+			<title>Installing From An Established CMUcam3 Environment</title>
+			<para>To perform an installation of ISC Pipeline from an established CMUcam3 development environment, you must perform the steps described below:</para>
+			<warning>
+				<para>If you are using a stale source tree of the CC3 API (anything before November of 2007), you must get a newer one, since ISC Pipeline uses many bleeding-edge features of the CC3 API to operate.  It is highly recommended that you download the latest source tree from the CC3 Subversion server located at the CMUcam website in order to use ISC Pipeline.  Go to http://cmucam.org/wiki/Software for more information.</para>
+			</warning>
+			<orderedlist>
+				<listitem>
+					<para>Obtain an archive of ISC Pipeline from the website.</para>
+				</listitem>
+				<listitem>
+					<para>Extract the archive, and move the "iscpipeline" folder from the unzipped archive to the "projects" directory in the cc3 root.</para>
+				</listitem>
+				<listitem>
+					<para>In the cc3/projects directory, there is a Makefile.  Append "iscpipeline" without the quotes to the "subdirs" variable.</para>
+				</listitem>
+				<listitem>
+					<para>An ISC Pipeline example program (grass/sand detection code) can be compiled by typing "make" at the cygwin prompt from within cc3/projects/iscpipeline.  This program can be uploaded to the CMUcam3 like any project.</para>
+				</listitem>
+			</orderedlist>
+		</section>
+  	<chapter id="design">
+    	<title>Usage</title>
+    	<para>This chapter will explain how to program image pipelines on the CMUcam3 with the ISC Pipeline library.</para>
+		<section id="general">
+			<title>General Usage</title>
+			<para>This section deals in the general usage of the ISC Pipeline system.  If you understand everything in this section, you will understand the "spirit" of the design and will be able to effectively use the vast majority of modules with relative ease.</para>
+			<para>The first concept of ISC Pipeline that must be grasped is that it is a "flow-based" design of interlocked modules.  In other words, the image comes in through an image source (usually the CMUcam3, but possibly a memory buffer), gets handled by several modules that perform image processing functions, and then is output by a module that exports the image or the data produced by the image (such as a histogram).  The modules are all designed to have a consistent interface between them, which makes it very easy and clean to set up an image pipeline.</para>
+			<para>The common interface for using ISC Pipeline modules is described in a step-by-step manner below by creating a simple pipeline.</para>
+			<section id="init">
+				<title>Step-By-Step Part 1: Setting Up The Pipeline</title>
+				<para>The first phase that occurs in any ISC Pipeline configuration is initialization of the modules.  We're going to first take a picture, which in the CC3 API is done by calling:</para>
+				<programlisting>
+<![CDATA[
+cc3_pixbuf_load();
+]]>
+				</programlisting>
+				<para>This line of code tells the CMUcam3 to take a new picture.  This picture is stored in a memory buffer.</para>
+				<para>We now have a picture in the image buffer, but what kind of picture is it?  Is it high resolution or low resolution?  What colorspace does it use?  Just like you can't possibly know this from our contrived example, an ISC Pipeline module cannot know this information without being told.  To give this information to a module, we use an Image Context data structure.  To get an Image Context for the current image in the FIFO queue, call this function:</para>
+				<programlisting>
+<![CDATA[
+ISC_util_imagecontext ISC_util_imagecontext_getfromcurrent( cc3_camera_resolution_t, cc3_colorspace_t );
+]]>
+				</programlisting>
+				<para>This function grabs image attributes from global variables defined by the CMUcam3 API and puts them in our convenient little ISC_util_imagecontext data structure.  All start functions for modules require this data structure.  However, when a user initially calls to obtain an Image Context, they are expected to supply the camera resolution and the colorspace info.  The reason is that the resolution and colorspace information are stored in global variables that are specific to a hardware implementation.  Hard-coding those variables into the code would break portability between hardware architectures, which would violate the CMUcam3 developers' design decision of a hardware abstraction layer.</para>
+				<para>We now have an image in the buffer, and we know everything about the image because we have its Image Context.  The next thing that must be explained is the organization of modules.  There are four kinds of modules in ISC Pipeline:</para>
+				<itemizedlist>
+					<listitem>
+						<para>In Modules: In Modules bring image data into the pipeline.  In this release, the only one is ISC_in_cmucam, which pulls image data from the CMUcam3's FIFO data buffer.</para>
+					</listitem>
+					<listitem>
+						<para>Out Modules: Out Modules send processed image data to the intended output location (serial port, SD card, etc).  Output data can either be in an image format like JPEG or PNG, or it can be in the form of interpretive data such as a color histogram.</para>
+					</listitem>
+					<listitem>
+						<para>Process Modules: Process Modules take image data in, do something to it, and then spit the result out.  These go in the middle of the pipeline.  Common Process Modules include subsampling (downscaling an image) or image convolution.</para>
+					</listitem>
+					<listitem>
+						<para>Utility Modules provide support for other modules.  This is precisely why the Image Context structure is considered a Utility Module; although it does not perform any actual image processing, it supports all other modules by supplying information.  Utility Modules are not required to follow the standard module interface, but they are meant to stay hidden to avoid confusion.  Only ISC Pipeline developers should have to deal with any Utility Module except the Image Context system.</para>
+					</listitem>
+				</itemizedList>
+				<para>All pipelines have one In-Module and one Out-Module at a minimum.  We want to bring our image in from the CMUcam3, so we are going to use the ISC_in_cmucam module.  Next, the ISC_process_subsample Process Module will subsample the incoming image.  Finally, we're going to output the subsampled image through the serial port as a PPM image using ISC_out_ppm.</para>
+				<warning>
+					<para>Doing this particular example on a real CMUcam3 (or even on the virtual-cam simulator) will send an uncompressed image through the serial port, which will take a long time.  This is not a practical use of ISC Pipeline, but rather an example of syntax for usage.</para>
+				</warning>
+				<para>To set this up, we're going to write the following code:</para>
+				<programlisting>
+	<![CDATA[
+	ISC_util_imagecontext icontext;
+	ISC_in_cmucam *iic;
+	ISC_process_subsample *ips;
+	ISC_out_ppm *iop;
+
+	cc3_pixbuf_load();
+
+	icontext = ISC_util_imagecontext_getfromcurrent( CC3_CAMERA_RESOLUTION_HIGH,
+       	                                                 CC3_COLORSPACE_RGB );
+
+	iic = ISC_in_cmucam_start(icontext);
+
+	icontext = ISC_in_cmucam_context(iic);
+
+	ips = ISC_process_subsample_start( icontext, 4, 4, CC3_SUBSAMPLE_MEAN );
+
+	icontext = ISC_process_subsample_context(ips);
+
+	iop = ISC_out_ppm_start( icontext, stdout );
+]]>
+				</programlisting>
+				<para>First, we are declaring a temporary variable for storing an Image Context and declaring pointers for each of the three module State Structures.  A State Structure is a data structure that stores the current state of the module it represents.  Unless you really know what you're doing, you should treat state structures as "black boxes" that go into module functions as parameters but you do not modify.</para>
+				<para>After declaring our variables, we take a picture and we get the Image Context for the CMUcam3's stored image, both of which we mentioned above.  Next, we call ISC_in_cmucam_start, which returns a pointer to an ISC_in_cmucam state structure.  All modules are created with start functions, and they all require an Image Context.  After starting ISC_in_cmucam, we use ISC_in_cmucam_context to get the Image Context of the module's output image.  For efficiency we reuse the "icontext" variable from before to do this.  Now "icontext" contains the Image Context that will be the input to the next module's start function.</para>
+				<note>
+					<para>All In and Process Modules have "context" functions for getting the Image Context of the image coming out of the module.  For instance, in the example above, the ISC_process_subsample_context function will deliver an Image Context whose dimensions will be four times smaller in both width and height than the source image, since the subsampling system is going to downscale the image by 4.</para>
+				</note>
+				<para>Now that we have the ISC_in_cmucam context, we have enough information to start the next module in the pipeline, which is exactly what we do: we call ISC_process_subsample_start.  Notice that the first parameter is the Image Context.  The other parameters are the horizontal and vertical subsample factor (both set to 4 to scale the image down by 4 in both directions), and the last parameter declares the subsampling method, which we want to be mean-based subsampling.</para>
+				<para>Next, we get the Image Context of the ISC_process_subsample module by calling its context function.</para>
+				<para>Finally, we call ISC_out_ppm_start, which uses the Image Context from the subsampler as its input.  However, if you notice, we don't get the Image Context from ISC_out_ppm.  The reason is because this is the end of the image pipeline.  The second parameter for ISC_out_ppm_start is stdout, since anything directed to stdout on a CMUcam3 goes to the serial port.</para>
+				<para>Now we have completed the Initialization phase of running an ISC Pipeline.  What we've gotten from this are three State Structures that are ready to be used in a pipeline loop.</para>
+				<para>Things to remember from this chapter:</para>
+				<itemizedlist>
+					<listitem>
+						<para>ISC Pipeline works by sending image data through modules.</para>
+					</listitem>
+					<listitem>
+						<para>There are four kinds of modules: In, Out, Process, and Utility.</para>
+					</listitem>
+					<listitem>
+						<para>All non-utility Modules have a Start function, and all Start functions require an Image Context.</para>
+					</listitem>
+					<listitem>
+						<para>Start Functions return a "State Structure" that is used to work with the module.</para>
+					</listitem>
+					<listitem>
+						<para>All In and Process Modules have a Context function for getting the Image Context for the next module in the pipeline.</para>
+					</listitem>
+				</itemizedlist>
+			</section>
+			<section id="pipeloop">
+				<title>Step-By-Step Part 2: Running The Pipeline</title>
+				<para>To recap, what we obtained from the prior Initialization phase were three "State Structures" for the three modules we are using to build our image pipeline.  In this section, we are going to use these State Structures to create a loop that executes the image pipeline in question.</para>
+				<programlisting>
+	<![CDATA[
+    while ( ISC_out_ppm_running(iop) )
+    {
+	// In-Module: CMUCAM
+        inRow = ISC_in_cmucam_process( iic );
+
+	// Process-Module: SUBSAMPLE
+	ISC_process_subsample_feed( ips, inRow );
+	inRow = ISC_process_subsample_process( ips );
+
+	// Out-Module: PPM
+	ISC_out_ppm_feed( iop, inRow );
+    }
+]]>
+				</programlisting>
+				<para>The first thing you probably notice is the entire pipeline operation happens in a while-loop.  Notice that the conditional is the function ISC_out_ppm_running -- a "running" function just returns if a module is still running or if it has finished.  It is customary to use the Running function of the last module in the pipeline, since the only time you can truly tell if the pipeline is finished is if the last module is done.</para>
+				<para>Firstly ISC_in_cmucam_process is called, which outputs to a uint8_t pointer called inRow that specifies the location of the first scanline of pixels from the CMUcam3's FIFO queue.  This pointer is immediately sent into the Feed function of ISC_process_subsample.  Next, ISC_process_subsample_process is called, which returns a processed row as inRow (the inRow pointer is being reused in this example for variable brevity).  Finally, this newly-processed row is sent to ISC_out_ppm's Feed function, where it is sent out.</para>
+				<para>The main pattern to notice here is how module functions are called.  In-Modules only have process functions, so that is rather self-explanatory.  However, for a Process-Module, it is customary to call its feed function, and then right afterward, call the process function.  Finally, the Out-Module has a feed function.  By following the inRow pointer, you can see the flow of data through the pipeline.</para>
+			</section>
+			<section id="ending">
+				<title>Step-By-Step Part 3: All Good Things...</title>
+				<para>Finally, we reach the point where we end the pipeline, since the modules have finished their execution.  To end these pipelines, we simply have to call their end functions, like so:</para>
+				<programlisting>
+	<![CDATA[
+    ISC_in_cmucam_end( iic );
+    ISC_process_subsample_end( ips );
+    ISC_out_ppm_end( iop );
+]]>
+				</programlisting>
+				<para>These functions "clean up" the use of the ISC Pipeline modules by deallocating memory and other fun things like that so you don't have to.  Being independent modules, you can call these end functions in any order.</para>
+			</section>
+		</section>
+	</chapter>
+	<glossary>
+		<title>Glossary</title>
+		<para>Contains commonly-used terms in this Handbook.</para>
+		<glossdiv>
+			<title>All Definitions</title>
+			<glossentry id="contextdef">
+				<glossterm>Context Function</glossterm>
+				<glossdef>
+					<para>A function that gives a Module's outgoing Image Context.</para>
+				</glossdef>
+			</glossentry>
+			<glossentry id="enddef">
+				<glossterm>End Function</glossterm>
+				<glossdef>
+					<para>A function that ends a Module after it is finished.</para>
+				</glossdef>
+			</glossentry>
+			<glossentry id="feeddef">
+				<glossterm>Feed Function</glossterm>
+				<glossdef>
+					<para>A function that gives a Module a new row of image data.</para>
+				</glossdef>
+			</glossentry>
+			<glossentry id="icdef">
+				<glossterm>Image Context</glossterm>
+				<glossdef>
+					<para>A data structure containing basic image data (dimensions, colorspaces, etc).</para>
+				</glossdef>
+			</glossentry>
+			<glossentry id="mod">
+				<glossterm>Module</glossterm>
+				<glossdef>
+					<para>A piece of independent code that performs one specific function in a pipeline.  There are four kinds: In, Out, Process, and Utility.</para>
+				</glossdef>
+			</glossentry>
+			<glossentry id="pipeline">
+				<glossterm>Pipeline</glossterm>
+				<glossdef>
+					<para>A linear process used to perform a set of image processing operations on a desired image.</para>
+				</glossdef>
+			</glossentry>
+			<glossentry id="procdef">
+				<glossterm>Process Function</glossterm>
+				<glossdef>
+					<para>A function that spits out completed image data rows after processing.</para>
+				</glossdef>
+			</glossentry>
+			<glossentry id="startdef">
+				<glossterm>Start Function</glossterm>
+				<glossdef>
+					<para>A function used to initialize a Module.</para>
+				</glossdef>
+			</glossentry>
+			<glossentry id="statedef">
+				<glossterm>State Structure</glossterm>
+				<glossdef>
+					<para>A data structure containing a Module's current state.  Users are highly recommended not to tamper with these!</para>
+				</glossdef>
+			</glossentry>
+		</glossdiv>
+	</glossary>
+</book>

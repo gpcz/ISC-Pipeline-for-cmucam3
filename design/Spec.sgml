@@ -1,0 +1,282 @@
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook V3.1//EN">
+
+<book id="ISCPipelineSpec">
+	<title>ISC Pipeline Spec</title>
+  	<chapter id="design">
+    		<title>Pipeline Design Principles</title>
+    		<para>This chapter goes over the general design considerations of ISC Pipeline.</para>
+		<section id="constraints">
+			<title>Constraints</title>
+			<para>Before explaining the requirements of the library, it is first necessary to explain the constraints, as they shape the fundamental ability of the library.  ISC Pipeline, being a software library designed specifically for the CMUcam3, is constrained to run on the CMUcam3's hardware by definition.  For reference, the hardware specifications of the CMUcam3 are listed below:</para>
+			<itemizedlist>
+			<listitem><para>CPU: NXP LPC2106 ARM7TDMI, running between 14 and 60 MHz depending on current use</para></listitem>
+			<listitem><para>RAM: 64KB onboard RAM</para></listitem>
+			<listitem><para>ROM: 128KB flash, with 8KB taken by the bootloader</para></listitem>
+			<listitem><para>Camera: 352x288 at 24-bit with 1MB hardware FIFO</para></listitem>
+			</itemizedlist>
+			<para>By modern standards, these hardware requirements are extremely modest, with little or no room for unnecessary processor or memory use.  Of particular note is the fact that a complete frame of the CMUcam3's camera output cannot fit within the full memory space allocated to the programmer, requiring either a reduction in image size, image quality (bitrate), or for the necessary image processing to be done in parts.</para>
+			<para>To store a full frame of camera data in the CMUcam3, the camera places the data into a hardware FIFO queue.  Within the base camera API, there is a function for obtaining rows of the image from this FIFO.  Although the function will allow the user to obtain an arbitrary number of rows, early tests indicated no known speed difference (as might be anticipated from I/O delays or other phenomena) between obtaining rows one at a time and obtaining a large number of rows.</para>
+		</section>
+		<section id="requirements">
+			<title>Requirements</title>
+			<para>Once the constraints of the ISC Pipeline system are understood, the functional requirements of the ISC Pipeline system can be determined.</para>
+			<section id="functional">
+				<title>Functional Requirements</title>
+				<para>The functional requirements of the system are as follows:</para>
+				<orderedlist>
+					<listitem><para>The library must be able to perform image convolutions.</para></listitem>
+					<listitem><para>The library must be able to create pixel value histograms of an image for specified subdivisions of both the image and of pixel "bins."</para></listitem>
+					<listitem><para>The library must be able to perform image subsampling with representative pixel, mean-based, and random-pixel filtering.</para></listitem>
+				</orderedlist>
+			</section>
+			<section id="nonfunctional">
+				<title>Non-Functional Requirements</title>
+				<para>The non-functional requirements of the system are as follows:</para>
+				<orderedlist>
+					<listitem><para>The library must be able to run within the strict 64KB of RAM within the CMUcam3 environment.</para></listitem>
+					<listitem><para>The library must allow developers to minimize executable size by removing unused portions of the library from compilation.</para></listitem>
+					<listitem><para>The library must be indiscriminate where the output image goes -- whether it be in any of a variety of image formats, sent either through the serial port, onto the CMUcam's onboard SD card, or (memory-permitting) stored in a RAM buffer, the library should be accomodating.</para></listitem>
+					<listitem><para>Whenever possible, the library should keep complicated parts of the software abstracted from the user, and should only rely on the user for very minimal maintenance tasks.  In other words, the library should take care of itself when used in a normal way.</para></listitem>
+				</orderedlist>
+			</section>
+		</section>
+		<section id="general">
+			<title>General Design</title>
+			<para>ISC Pipeline is designed with a flow-based programming model, with well-defined "modules" that perform specified functions, all with specified inputs and outputs.  The system was designed in a modular flow-based model for several important reasons:</para>
+			<itemizedlist>
+				<listitem><para>Modules conserve RAM, since each module can store only the data necessary to perform the immediate task at hand and their memory can be cleanly deallocated at the end of their usefulness.</para></listitem>
+				<listitem><para>Modules stored in separate C files can be disabled in the Makefile, allowing for unused portions of the library to be restricted from compiling.</para></listitem>
+				<listitem><para>Modules have defined inputs and outputs, but make no distinction of what happens to the data before or after their use.  This allows for great amounts of data flexibility.</para></listitem>
+				<listitem><para>Modules can be independently tested for functionality, memory leaks, and speed, increasing overall reliability of the library.</para></listitem>
+			</itemizedlist>
+			<para>Modules in ISC Pipeline all use a consistent interface.  Depending on the functionality of the module, it will contain some or all of the following functions:</para>
+			<orderedlist>
+				<listitem><para>Start: Most modules have a start function.  The purpose of the start function is to accept the initial values necessary to execute the module (provided in the parameters of the start function), allocate any memory necessary to start processing, and then deliver a pointer to a data structure containing the current state of the module (provided through the return function).
+				</para></listitem>
+				<listitem><para>Stop: The stop function is the opposite of the start function.  It accepts the pointer to the state structure given by the start function, deallocates any remaining memory still allocated to the module, and then "cleans up" by deallocating the state structure itself.  This fully ends the module while keeping all memory allocations and other complicated yet important things abstracted from the user.
+				</para></listitem>
+				<listitem><para>Feed: About half of the modules in ISC Pipeline have a feed function.  The feed function is designed to accept rows of image data from the user for later processing.  Since it is a data sink, most (if not all) feed functions have no return value (void function).  The typical function parameters for a feed function is the module's state structure and the incoming row as a poiner of unsigned 8-bit characters.  A feed function's defined task is to accept any incoming row as its own memory, and should properly dispose of the memory (or relinquish its rights to the next module) when it's done with it.</para>
+				</listitem>
+				<listitem><para>Process: About half of the modules in ISC Pipeline have a process function.  The process function is the opposite of the feed function -- aside from the module's state structure, it accepts no input parameters, and after execution it returns a pointer to a row of pixels.  The process function, being the place where most modules do actual computation, tends to be the slowest of any module's internal functions.  The general design principle is that Process modules should supply a newly-allocated pointer of pixels as its output, so that the next module can have the data fed in without computationally-expensive memory copy operations.
+				</para></listitem>
+			</orderedlist>
+			<para>There are four types of modules in ISC Pipeline:</para>
+			<orderedlist>
+				<listitem>
+					<para>In Modules: An In Module is designed to be a source of data for the pipeline.  Like all modules it has a start and a stop function, but unlike most modules, it has no "feed" function; since it is a source of image pixel rows, the In Module only has a process function.</para>
+				</listitem>
+				<listitem>
+					<para>Process Modules: A Process Module is the primary function one considers when they think of an image pipeline.  It accepts rows of pixels as an input in its feed function, and it outputs rows of pixels as an output in its process function.  These modules do the majority of the actual image processing computations.</para>
+				</listitem>
+				<listitem>
+					<para>Out Modules: An Out Module is designed to be a sink for image data in the pipeline.  It has a feed function, but it does not have a process function.  Many times, it will have functions that stray from the typical four functions, which allow it to be used for special purposes.  One such module is the Histogram module, which has several export functions for sending the histogram to different places in a variety of formats.  See the section on the Histogram Module for more information.</para>
+				</listitem>
+				<listitem>
+					<para>Utility Modules: A Utility Module is the classifier for all other functions and modules that do not fit within the other three templates for modules, or for modules that provide a support function internally for modules of the other three types (such as the RowQueue).  Many times, a Utility Module will not have any of the standard functions of a module or even have a module state structure.  The primary purpose of utility modules are to provide support in a number of forms, including supplying a nice abstraction for something hackish, code reuse, or simply smooth operation of the pipeline.</para>
+				</listitem>
+			</orderedlist>
+		</section>
+	</chapter>
+	<chapter id="mods">
+		<title>Module/Data Specifications</title>
+		<para>This chapter describes the modules and data structures used in ISC Pipeline to perform its duties.</para>
+		<section id="structs">
+			<title>Data Structures</title>
+			<para>This section covers the data structures (or at least the idea behind them).</para>
+			<section id="context">
+				<title>Image Context</title>
+				<para>The Image Context is a fundamental structure in ISC Pipeline.  It contains everything a module needs to know in order to perform its duties on a given image.  All In, Out, and Process modules require an Image Context when being initialized, and all In and Process modules have a Context function for returning the Image Context of the output image.</para>
+				<para>Specifically, an Image Context contains:</para>
+				<itemizedlist>
+					<listitem>
+						<para>cc3_frame_t frame: Information about the dimensions of the image (width, height, region of interest, etc).</para>
+					</listitem>
+					<listitem>
+						<para>cc3_camera_resolution_t resolution: Resolution of the image (low or high).</para>
+					</listitem>
+					<listitem>
+						<para>cc3_colorspace_t colorspace: Colorspace of the image (RGB, YUV, monochrome, etc).</para>
+					</listitem>
+				</itemizedlist>
+				<para>The Image Context system is designed to keep image details transparent from the user, so that the user can think more about how to link up the modules for their specific purpose rather than scouring documentation on how to find the right piece of information (such as height or width of the image) to please the initialization systems of the modules they want to use.</para>
+			</section>
+			<section>
+				<title>Module State Structure</title>
+				<para>The current version of the CC3 development environment is C-based, meaning that object-oriented paradigms (which would be optimal for making isolated modules like the ones described in the General Design) are not available.  To make up for that lost functionality, ISC Pipeline uses "state structures" for each module.  When a module is first initialized with a start function, it returns a state structure, which is then kept until the end function is called.  The state structure is intended to be handled purely by the module's functions that take the state structure in as a parameter, much like a C++ object with private data.  User modification of state structure data cannot be made forbidden (due to the limitations of C), but it is highly discouraged to do so without a really good reason.</para>
+			</section>
+		</section>
+  		<section id="in">
+			<title>In Modules</title>
+			<para>This section describes the "In" modules for ISC Pipeline.  In Modules, as mentioned earlier, have a process function (spitting out data), but no feed function.</para>
+			<itemizedlist>
+				<listitem>
+					<para>ISC_in_cmucam</para>
+					<para>Receives images from the internal hardware of the CMUcam3.</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: N/A</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: Image rows</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+			</itemizedlist>
+  		</section>
+  		<section id="process">
+			<title>Process Modules</title>
+			<para>This section describes the "Process" modules for ISC Pipeline.  Process Modules, as mentioned earlier, have a feed function (accepting data in), and a process function (sending data out).</para>
+			<itemizedlist>
+				<listitem>
+					<para>ISC_process_clamp_colorspace</para>
+					<para>Removes colorspace information from the target image (such as RGB to R, G, or B).</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context with requested channel of interest</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: Rows</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: Clamped Rows</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+				<listitem>
+					<para>ISC_process_convolution</para>
+					<para>Performs an image convolution on the input image.</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context, Kernel</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: Rows</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: Convoluted Rows</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+				<listitem>
+					<para>ISC_process_subsample</para>
+					<para>Subsamples the input image.</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context, X subdivision factor, Y subdivision factor</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: Rows</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: Subsampled Rows</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+				<listitem>
+					<para>ISC_process_tripler</para>
+					<para>Converts a monochrome image to an RGB image for proper image file encoding (such as PPM).</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: Rows</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: Tripled Rows</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+			</itemizedlist>
+  		</section>
+  		<section id="out">
+			<title>Out Modules</title>
+			<para>This section describes the "Out" modules for ISC Pipeline.  Out Modules, as mentioned earlier, have a feed function (accepting data in), but no process function (sending data out).</para>
+			<itemizedlist>
+				<listitem>
+					<para>ISC_out_png</para>
+					<para>Sends the input image out as a PNG-encoded image.</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context, file pointer</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: Rows</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: PNG image to file pointer</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+				<listitem>
+					<para>ISC_out_ppm</para>
+					<para>Sends the input image out as a PPM-encoded image.</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context, file pointer</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: Rows</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: PPM image to file pointer</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+				<listitem>
+					<para>ISC_out_jpeg</para>
+					<para>Sends the input image out as a JPEG image.</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context, file pointer</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: Rows</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: JPEG image to file pointer</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+				<listitem>
+					<para>ISC_out_histogram</para>
+					<para>Performs a histogram analysis on an input image.</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments: Image Context</para>
+						</listitem>
+						<listitem>
+							<para>Inputs: Rows</para>
+						</listitem>
+						<listitem>
+							<para>Outputs: Data (non-standard functions used to extract this)</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+			</itemizedlist>
+  		</section>
+  		<section id="util">
+			<title>Utility Modules</title>
+			<para>This section describes the "Utility" modules for ISC Pipeline.  Utility Modules, as mentioned earlier, have no strict structure and are mainly used to support the other three modules.</para>
+			<itemizedlist>
+				<listitem>
+					<para>ISC_util_</para>
+					<itemizedlist>
+						<listitem>
+							<para>Initial arguments:</para>
+						</listitem>
+						<listitem>
+							<para>Inputs:</para>
+						</listitem>
+						<listitem>
+							<para>Outputs:</para>
+						</listitem>
+					</itemizedlist>
+				</listitem>
+			</itemizedlist>
+  		</section>
+	</chapter>
+</book>
